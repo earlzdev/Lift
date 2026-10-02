@@ -43,5 +43,8 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    implementation(libs.mlkit.subject.segmentation)
+    // ModuleInstallClient: докачать модель ML Kit, если её ещё нет на устройстве
+    implementation(libs.play.services.base)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

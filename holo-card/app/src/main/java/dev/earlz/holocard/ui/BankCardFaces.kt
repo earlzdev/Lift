@@ -27,16 +27,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.earlz.holocard.model.BankCard
 import kotlin.random.Random
 
 val BANK_SIZE = DpSize(340.dp, 214.dp)   // пропорции настоящей карты 85.6×54 мм
+val BANK_CORNER = 16.dp
 
-// Голограмма-наклейка справа вверху, dp внутри карты
+// Голограмма-наклейка: на лице — справа вверху, на обороте — справа внизу (dp внутри стороны)
 private val HOLO_LEFT = 266.dp
 private val HOLO_TOP = 22.dp
 private val HOLO_SIZE = 50.dp
-
-// Голограмма на обороте — справа внизу, dp внутри оборота
 private val BACK_HOLO_LEFT = 266.dp
 private val BACK_HOLO_TOP = 142.dp
 
@@ -53,19 +53,17 @@ fun bankFoil(density: Float, back: Boolean): FoilSpec {
     return FoilSpec(rect = Rect(l, t, l + s, t + s), inside = 1f, outside = 0.12f, metal = 1f)
 }
 
-/** Лицевая сторона металлической банковской карты; рисуется внутри [HoloCard]. */
+/** Лицевая сторона металлической карты. */
 @Composable
-fun BankFace(cardSize: DpSize) {
-    val brush = rememberBrushStrokes()
-    val shape = RoundedCornerShape(16.dp)
-
+fun BankFace(card: BankCard) {
+    val strokes = rememberBrushStrokes()
     Box(
         modifier = Modifier
-            .size(cardSize)
-            .clip(shape),
+            .size(BANK_SIZE)
+            .clip(RoundedCornerShape(BANK_CORNER)),
     ) {
         Canvas(Modifier.fillMaxSize()) {
-            drawMetal(brush)
+            drawMetal(card, strokes)
 
             // Чип: золотая пластинка с контактами
             val chip = Rect(Offset(26.dp.toPx(), 78.dp.toPx()), Size(46.dp.toPx(), 36.dp.toPx()))
@@ -84,41 +82,34 @@ fun BankFace(cardSize: DpSize) {
             for (i in 1..3) {
                 val r = (5 + i * 5).dp.toPx()
                 drawArc(
-                    color = Color.White.copy(alpha = 0.8f),
+                    color = card.ink.copy(alpha = 0.8f),
                     startAngle = -45f, sweepAngle = 90f, useCenter = false,
                     topLeft = Offset(wave.x - r, wave.y - r), size = Size(r * 2, r * 2),
                     style = Stroke(width = 2.dp.toPx()),
                 )
             }
-
-            // Голограмма-наклейка: светлое серебро — фольга шейдера на нём особенно видна
-            val holo = Rect(Offset(HOLO_LEFT.toPx(), HOLO_TOP.toPx()), Size(HOLO_SIZE.toPx(), HOLO_SIZE.toPx()))
-            drawRoundRect(
-                Brush.linearGradient(listOf(Color(0xFFDADDE3), Color(0xFF9DA3AD), Color(0xFFE9EBEF)), holo.topLeft, holo.bottomRight),
-                holo.topLeft, holo.size, CornerRadius(8.dp.toPx()),
-            )
-            drawCircle(Color.White.copy(alpha = 0.5f), radius = holo.width * 0.28f, center = holo.center, style = Stroke(2.dp.toPx()))
+            drawHologram(Rect(Offset(HOLO_LEFT.toPx(), HOLO_TOP.toPx()), Size(HOLO_SIZE.toPx(), HOLO_SIZE.toPx())))
         }
 
         Text(
             text = "COMPOSE",
-            color = Color.White.copy(alpha = 0.9f),
+            color = card.ink.copy(alpha = 0.9f),
             fontSize = 16.sp,
             fontWeight = FontWeight.Black,
             letterSpacing = 3.sp,
             modifier = Modifier.padding(start = 24.dp, top = 24.dp),
         )
         Text(
-            text = "4276  1408  2025  0310",
-            color = Color.White,
+            text = card.number.replace(" ", "  "),
+            color = card.ink,
             fontSize = 21.sp,
             fontFamily = FontFamily.Monospace,
             letterSpacing = 1.sp,
             modifier = Modifier.offset(x = 24.dp, y = 136.dp),
         )
         Text(
-            text = "EARL DEVELOPER",
-            color = Color.White.copy(alpha = 0.85f),
+            text = card.holder,
+            color = card.ink.copy(alpha = 0.85f),
             fontSize = 13.sp,
             fontFamily = FontFamily.Monospace,
             modifier = Modifier
@@ -126,8 +117,8 @@ fun BankFace(cardSize: DpSize) {
                 .padding(start = 24.dp, bottom = 22.dp),
         )
         Text(
-            text = "12/30",
-            color = Color.White.copy(alpha = 0.85f),
+            text = card.expiry,
+            color = card.ink.copy(alpha = 0.85f),
             fontSize = 13.sp,
             fontFamily = FontFamily.Monospace,
             modifier = Modifier
@@ -139,16 +130,15 @@ fun BankFace(cardSize: DpSize) {
 
 /** Оборот карты: магнитная полоса, полоса для подписи, CVV и голограмма. */
 @Composable
-fun BankBack(cardSize: DpSize) {
-    val brush = rememberBrushStrokes()
-
+fun BankBack(card: BankCard) {
+    val strokes = rememberBrushStrokes()
     Box(
         modifier = Modifier
-            .size(cardSize)
-            .clip(RoundedCornerShape(16.dp)),
+            .size(BANK_SIZE)
+            .clip(RoundedCornerShape(BANK_CORNER)),
     ) {
         Canvas(Modifier.fillMaxSize()) {
-            drawMetal(brush)
+            drawMetal(card, strokes)
             // Магнитная полоса
             drawRect(Color(0xFF050506), Offset(0f, 22.dp.toPx()), Size(size.width, 42.dp.toPx()))
             // Полоса для подписи: светлая, в мелкую косую штриховку
@@ -156,23 +146,14 @@ fun BankBack(cardSize: DpSize) {
             drawRect(Color(0xFFE9E6DD), sign.topLeft, sign.size)
             var x = sign.left - sign.height
             while (x < sign.right) {
-                drawLine(
-                    Color(0xFFCFCAB9),
-                    Offset(maxOf(x, sign.left), sign.top + (maxOf(x, sign.left) - x)),
-                    Offset(minOf(x + sign.height, sign.right), sign.top + (minOf(x + sign.height, sign.right) - x)),
-                    1f,
-                )
+                val from = maxOf(x, sign.left)
+                val to = minOf(x + sign.height, sign.right)
+                drawLine(Color(0xFFCFCAB9), Offset(from, sign.top + (from - x)), Offset(to, sign.top + (to - x)), 1f)
                 x += 6.dp.toPx()
             }
             // Окошко CVV
             drawRect(Color.White, Offset(242.dp.toPx(), 84.dp.toPx()), Size(56.dp.toPx(), 34.dp.toPx()))
-            // Голограмма
-            val holo = Rect(Offset(BACK_HOLO_LEFT.toPx(), BACK_HOLO_TOP.toPx()), Size(HOLO_SIZE.toPx(), HOLO_SIZE.toPx()))
-            drawRoundRect(
-                Brush.linearGradient(listOf(Color(0xFFDADDE3), Color(0xFF9DA3AD), Color(0xFFE9EBEF)), holo.topLeft, holo.bottomRight),
-                holo.topLeft, holo.size, CornerRadius(8.dp.toPx()),
-            )
-            drawCircle(Color.White.copy(alpha = 0.5f), radius = holo.width * 0.28f, center = holo.center, style = Stroke(2.dp.toPx()))
+            drawHologram(Rect(Offset(BACK_HOLO_LEFT.toPx(), BACK_HOLO_TOP.toPx()), Size(HOLO_SIZE.toPx(), HOLO_SIZE.toPx())))
         }
         Text(
             text = "Earl",
@@ -183,7 +164,7 @@ fun BankBack(cardSize: DpSize) {
             modifier = Modifier.offset(x = 30.dp, y = 86.dp),
         )
         Text(
-            text = "703",
+            text = card.cvv,
             color = Color.Black,
             fontSize = 15.sp,
             fontFamily = FontFamily.Monospace,
@@ -192,7 +173,7 @@ fun BankBack(cardSize: DpSize) {
         )
         Text(
             text = "Карта выпущена в Jetpack Compose.\nНайдёте — верните автору: он дебажит recomposition.",
-            color = Color.White.copy(alpha = 0.55f),
+            color = card.ink.copy(alpha = 0.55f),
             fontSize = 8.sp,
             lineHeight = 11.sp,
             modifier = Modifier.offset(x = 20.dp, y = 146.dp),
@@ -207,20 +188,25 @@ private fun rememberBrushStrokes(): List<Pair<Float, Float>> = remember {
     List(220) { rnd.nextFloat() to rnd.nextFloat() }
 }
 
-private fun DrawScope.drawMetal(strokes: List<Pair<Float, Float>>) {
-    drawRect(
-        Brush.linearGradient(
-            listOf(Color(0xFF3A3D44), Color(0xFF16171B), Color(0xFF2E3138), Color(0xFF101114)),
-            start = Offset.Zero,
-            end = Offset(size.width, size.height),
-        ),
-    )
+private fun DrawScope.drawMetal(card: BankCard, strokes: List<Pair<Float, Float>>) {
+    drawRect(Brush.linearGradient(card.metal, start = Offset.Zero, end = Offset(size.width, size.height)))
+    // На светлом металле шлифовка тёмная, на тёмном — светлая
+    val streak = if (card.ink == Color.White) Color.White else Color.Black
     strokes.forEach { (y, a) ->
         drawLine(
-            color = Color.White.copy(alpha = 0.015f + a * 0.035f),
+            color = streak.copy(alpha = 0.015f + a * 0.035f),
             start = Offset(0f, y * size.height),
             end = Offset(size.width, y * size.height),
             strokeWidth = 1f,
         )
     }
+}
+
+/** Голограмма-наклейка: светлое серебро — фольга шейдера на нём особенно видна. */
+private fun DrawScope.drawHologram(r: Rect) {
+    drawRoundRect(
+        Brush.linearGradient(listOf(Color(0xFFDADDE3), Color(0xFF9DA3AD), Color(0xFFE9EBEF)), r.topLeft, r.bottomRight),
+        r.topLeft, r.size, CornerRadius(8.dp.toPx()),
+    )
+    drawCircle(Color.White.copy(alpha = 0.5f), radius = r.width * 0.28f, center = r.center, style = Stroke(2.dp.toPx()))
 }

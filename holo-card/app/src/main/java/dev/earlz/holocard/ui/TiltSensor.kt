@@ -13,8 +13,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalContext
 
-/** Наклон телефона дальше этого угла (в радианах, ~25°) считаем максимальным. */
-private const val MAX_TILT = 0.45f
+/** Наклон телефона дальше этого угла (в радианах, ~13°) считаем максимальным. */
+private const val MAX_TILT = 0.22f
+
+/** Как быстро «нейтраль» догоняет телефон: доля за одно показание (~50 в секунду) — около 10 с. */
+private const val RECENTER = 0.002f
 
 /**
  * Наклон телефона относительно «нейтрального» положения: x — влево/вправо, y — к себе/от себя,
@@ -48,9 +51,9 @@ fun rememberTilt(): State<Offset> {
                     basePitch = pitch
                     baseRoll = roll
                 }
-                // Нейтраль догоняет текущее положение за несколько секунд
-                basePitch += (pitch - basePitch) * 0.01f
-                baseRoll += (roll - baseRoll) * 0.01f
+                // Нейтраль медленно догоняет текущее положение
+                basePitch += (pitch - basePitch) * RECENTER
+                baseRoll += (roll - baseRoll) * RECENTER
 
                 val raw = Offset(
                     x = ((roll - baseRoll) / MAX_TILT).coerceIn(-1f, 1f),

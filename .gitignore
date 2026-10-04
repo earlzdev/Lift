@@ -9,3 +9,7 @@
 .externalNativeBuild/
 .cxx/
 .kotlin/
+
+# Видео-примеры для вдохновения, не для репозитория
+*.MP4
+*.mp4

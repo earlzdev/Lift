@@ -12,7 +12,6 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -23,7 +22,6 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -65,16 +63,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.earlz.holocard.model.BankCard
-import dev.earlz.holocard.model.formatRub
+import dev.earlz.holocard.model.formatUsd
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private enum class Pay { Idle, Waiting, Done }
 
-private val ICE = Color(0xFF9FD8FF)
 private val SUCCESS = Color(0xFF6EE7A8)
 
-/** Экран одной карты: карта крупно (наклон, переворот), баланс, заморозка и оплата. */
+/** Экран одной карты: карта крупно (наклон, переворот), баланс и оплата. */
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun SharedTransitionScope.CardDetailScreen(
@@ -87,45 +84,21 @@ fun SharedTransitionScope.CardDetailScreen(
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
 
-    var frozen by remember { mutableStateOf(false) }
-    val frost = remember { Animatable(0f) }
     var pay by remember { mutableStateOf(Pay.Idle) }
-    // Подъём карты при оплате и «потряхивание», если карта заморожена
+    // Подъём карты при оплате
     val lift = remember { Animatable(0f) }
-    val shake = remember { Animatable(0f) }
     val done = remember { Animatable(0f) }
     var status by remember { mutableStateOf<String?>(null) }
 
-    fun toggleFreeze() {
-        frozen = !frozen
-        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-        status = if (frozen) "❄  Карта заморожена" else null
-        scope.launch {
-            // Лёд нарастает медленно, а тает быстрее
-            frost.animateTo(if (frozen) 1f else 0f, tween(if (frozen) 1400 else 900, easing = FastOutSlowInEasing))
-        }
-    }
-
     fun startPay() {
         if (pay != Pay.Idle) return
-        if (frozen) {
-            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-            status = "Сначала разморозьте карту"
-            scope.launch {
-                shake.animateTo(0f, keyframes {
-                    durationMillis = 420
-                    -18f at 60; 16f at 130; -12f at 200; 8f at 270; -4f at 340; 0f at 420
-                })
-            }
-            return
-        }
         scope.launch {
             pay = Pay.Waiting
-            status = "Поднесите телефон к терминалу"
+            status = "Hold near the reader"
             lift.animateTo(1f, spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessLow))
             delay(2200)
             pay = Pay.Done
-            status = "Оплачено ${formatRub(340)} · Кофейня"
+            status = "Paid ${formatUsd(450)} · Recomposition Coffee"
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
             done.snapTo(0f)
             done.animateTo(1f, tween(900, easing = FastOutSlowInEasing))
@@ -150,7 +123,7 @@ fun SharedTransitionScope.CardDetailScreen(
                 .padding(horizontal = 4.dp, vertical = 4.dp),
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад", tint = Color.White)
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
             }
             Text(card.title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
         }
@@ -162,7 +135,6 @@ fun SharedTransitionScope.CardDetailScreen(
             HoloCard(
                 card = card,
                 tilt = tilt,
-                frost = { frost.value },
                 modifier = Modifier
                     .sharedElement(
                         rememberSharedContentState(cardSharedKey(card)),
@@ -173,21 +145,21 @@ fun SharedTransitionScope.CardDetailScreen(
                         translationY = -24.dp.toPx() * l
                         scaleX = 1f + 0.05f * l
                         scaleY = 1f + 0.05f * l
-                        translationX = shake.value.dp.toPx()
                     },
             )
             SuccessCheck(done = { done.value }, visible = pay == Pay.Done)
         }
         Text(
-            "Свайпни карту, чтобы перевернуть",
+            "Swipe the card to flip it",
             color = Color.White.copy(alpha = 0.35f),
             fontSize = 13.sp,
         )
 
         Spacer(Modifier.height(28.dp))
-        Text("Баланс карты", color = Color.White.copy(alpha = 0.5f), fontSize = 14.sp)
+        Text("Card balance", color = Color.White.copy(alpha = 0.5f), fontSize = 14.sp)
         RollingNumber(
-            value = card.balance,
+            value = card.balanceCents,
+            format = ::formatUsd,
             style = TextStyle(color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Bold),
         )
 
@@ -200,36 +172,34 @@ fun SharedTransitionScope.CardDetailScreen(
         ) { s ->
             Text(
                 text = s.orEmpty(),
-                color = when {
-                    pay == Pay.Done -> SUCCESS
-                    frozen -> ICE
-                    else -> Color.White.copy(alpha = 0.8f)
-                },
+                color = if (pay == Pay.Done) SUCCESS else Color.White.copy(alpha = 0.8f),
                 fontSize = 15.sp,
             )
         }
 
         Spacer(Modifier.weight(1f))
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(36.dp),
+        ActionButton(
+            icon = "📲",
+            label = "Pay",
+            active = pay != Pay.Idle,
+            activeColor = SUCCESS,
+            onClick = ::startPay,
             modifier = Modifier.padding(bottom = 32.dp),
-        ) {
-            ActionButton(icon = "📲", label = "Оплатить", active = pay != Pay.Idle, activeColor = SUCCESS, onClick = ::startPay)
-            ActionButton(
-                icon = "❄",
-                label = if (frozen) "Разморозить" else "Заморозить",
-                active = frozen,
-                activeColor = ICE,
-                onClick = ::toggleFreeze,
-            )
-        }
+        )
     }
 }
 
 @Composable
-private fun ActionButton(icon: String, label: String, active: Boolean, activeColor: Color, onClick: () -> Unit) {
+private fun ActionButton(
+    icon: String,
+    label: String,
+    active: Boolean,
+    activeColor: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val bg by animateColorAsState(if (active) activeColor.copy(alpha = 0.25f) else Color.White.copy(alpha = 0.08f), label = "bg")
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = modifier) {
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier

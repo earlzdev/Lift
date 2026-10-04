@@ -19,6 +19,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontFamily
@@ -28,29 +29,38 @@ import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.earlz.holocard.model.BankCard
+import dev.earlz.holocard.model.CardPattern
+import dev.earlz.holocard.model.HoloShape
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 import kotlin.random.Random
 
 val BANK_SIZE = DpSize(340.dp, 214.dp)   // пропорции настоящей карты 85.6×54 мм
 val BANK_CORNER = 16.dp
 
-// Голограмма-наклейка: на лице — справа вверху, на обороте — справа внизу (dp внутри стороны)
-private val HOLO_LEFT = 266.dp
-private val HOLO_TOP = 22.dp
+// Голограмма на обороте — квадрат справа внизу (dp внутри стороны)
 private val HOLO_SIZE = 50.dp
 private val BACK_HOLO_LEFT = 266.dp
 private val BACK_HOLO_TOP = 142.dp
 
+/** Где голограмма на лицевой стороне, в dp: квадрат и круг — справа вверху, полоска — поперёк карты. */
+private fun frontHoloDp(card: BankCard): Rect = when (card.hologram) {
+    HoloShape.Square, HoloShape.Circle -> Rect(266f, 22f, 316f, 72f)
+    HoloShape.Stripe -> Rect(0f, 58f, BANK_SIZE.width.value, 68f)
+}
+
 /** Где фольга: сильно на голограмме, на металле — едва заметно. */
-fun bankFoil(density: Float, back: Boolean): FoilSpec {
-    val s = HOLO_SIZE.value * density
-    val t = (if (back) BACK_HOLO_TOP else HOLO_TOP).value * density
-    val l = if (back) {
+fun bankFoil(card: BankCard, density: Float, back: Boolean): FoilSpec {
+    val dp = if (back) {
         // Оборот в слое отражён по горизонтали, поэтому и голограмма — с другой стороны
-        (BANK_SIZE.width - BACK_HOLO_LEFT - HOLO_SIZE).value * density
+        val left = (BANK_SIZE.width - BACK_HOLO_LEFT - HOLO_SIZE).value
+        Rect(left, BACK_HOLO_TOP.value, left + HOLO_SIZE.value, BACK_HOLO_TOP.value + HOLO_SIZE.value)
     } else {
-        HOLO_LEFT.value * density
+        frontHoloDp(card)
     }
-    return FoilSpec(rect = Rect(l, t, l + s, t + s), inside = 1f, outside = 0.12f, metal = 1f)
+    val px = Rect(dp.left * density, dp.top * density, dp.right * density, dp.bottom * density)
+    return FoilSpec(rect = px, inside = 1f, outside = 0.12f, metal = 1f)
 }
 
 /** Лицевая сторона металлической карты. */
@@ -88,11 +98,15 @@ fun BankFace(card: BankCard) {
                     style = Stroke(width = 2.dp.toPx()),
                 )
             }
-            drawHologram(Rect(Offset(HOLO_LEFT.toPx(), HOLO_TOP.toPx()), Size(HOLO_SIZE.toPx(), HOLO_SIZE.toPx())))
+            val holo = frontHoloDp(card)
+            drawHologram(
+                Rect(holo.left.dp.toPx(), holo.top.dp.toPx(), holo.right.dp.toPx(), holo.bottom.dp.toPx()),
+                card.hologram,
+            )
         }
 
         Text(
-            text = "COMPOSE",
+            text = card.brand,
             color = card.ink.copy(alpha = 0.9f),
             fontSize = 16.sp,
             fontWeight = FontWeight.Black,
@@ -153,7 +167,10 @@ fun BankBack(card: BankCard) {
             }
             // Окошко CVV
             drawRect(Color.White, Offset(242.dp.toPx(), 84.dp.toPx()), Size(56.dp.toPx(), 34.dp.toPx()))
-            drawHologram(Rect(Offset(BACK_HOLO_LEFT.toPx(), BACK_HOLO_TOP.toPx()), Size(HOLO_SIZE.toPx(), HOLO_SIZE.toPx())))
+            drawHologram(
+                Rect(Offset(BACK_HOLO_LEFT.toPx(), BACK_HOLO_TOP.toPx()), Size(HOLO_SIZE.toPx(), HOLO_SIZE.toPx())),
+                HoloShape.Square,
+            )
         }
         Text(
             text = "Earl",
@@ -172,7 +189,7 @@ fun BankBack(card: BankCard) {
             modifier = Modifier.offset(x = 255.dp, y = 91.dp),
         )
         Text(
-            text = "Карта выпущена в Jetpack Compose.\nНайдёте — верните автору: он дебажит recomposition.",
+            text = "Issued by Jetpack Compose Bank.\nIf found, please return to the author — busy debugging recomposition.",
             color = card.ink.copy(alpha = 0.55f),
             fontSize = 8.sp,
             lineHeight = 11.sp,
@@ -190,23 +207,62 @@ private fun rememberBrushStrokes(): List<Pair<Float, Float>> = remember {
 
 private fun DrawScope.drawMetal(card: BankCard, strokes: List<Pair<Float, Float>>) {
     drawRect(Brush.linearGradient(card.metal, start = Offset.Zero, end = Offset(size.width, size.height)))
-    // На светлом металле шлифовка тёмная, на тёмном — светлая
-    val streak = if (card.ink == Color.White) Color.White else Color.Black
-    strokes.forEach { (y, a) ->
-        drawLine(
-            color = streak.copy(alpha = 0.015f + a * 0.035f),
-            start = Offset(0f, y * size.height),
-            end = Offset(size.width, y * size.height),
-            strokeWidth = 1f,
-        )
+    // На светлом металле узор тёмный, на тёмном — светлый
+    val ink = if (card.ink == Color.White) Color.White else Color.Black
+    when (card.pattern) {
+        // Шлифовка: тонкие горизонтальные штрихи случайной яркости
+        CardPattern.Brushed -> strokes.forEach { (y, a) ->
+            drawLine(
+                color = ink.copy(alpha = 0.015f + a * 0.035f),
+                start = Offset(0f, y * size.height),
+                end = Offset(size.width, y * size.height),
+                strokeWidth = 1f,
+            )
+        }
+        // Сияние: плавные волны поперёк карты, каждая чуть сдвинута по фазе
+        CardPattern.Waves -> repeat(18) { k ->
+            val path = Path()
+            val base = size.height * (k + 0.5f) / 18f
+            var x = 0f
+            while (x <= size.width) {
+                val y = base + sin(x / size.width * 2f * PI.toFloat() * 1.3f + k * 0.45f) * size.height * 0.09f
+                if (x == 0f) path.moveTo(x, y) else path.lineTo(x, y)
+                x += 6f
+            }
+            drawPath(path, ink.copy(alpha = 0.06f + 0.03f * (k % 3)), style = Stroke(1.dp.toPx()))
+        }
+        // Гильош: вложенные «розетки», как на купюрах
+        CardPattern.Guilloche -> {
+            val c = Offset(size.width * 0.72f, size.height * 0.58f)
+            repeat(9) { k ->
+                val radius = size.height * (0.62f - k * 0.055f)
+                val path = Path()
+                val steps = 360
+                for (i in 0..steps) {
+                    val t = i / steps.toFloat() * 2f * PI.toFloat()
+                    val r = radius * (0.82f + 0.18f * cos(14f * t + k * 0.6f))
+                    val p = Offset(c.x + r * cos(t), c.y + r * sin(t))
+                    if (i == 0) path.moveTo(p.x, p.y) else path.lineTo(p.x, p.y)
+                }
+                drawPath(path, ink.copy(alpha = 0.09f), style = Stroke(0.8.dp.toPx()))
+            }
+        }
     }
 }
 
-/** Голограмма-наклейка: светлое серебро — фольга шейдера на нём особенно видна. */
-private fun DrawScope.drawHologram(r: Rect) {
-    drawRoundRect(
-        Brush.linearGradient(listOf(Color(0xFFDADDE3), Color(0xFF9DA3AD), Color(0xFFE9EBEF)), r.topLeft, r.bottomRight),
-        r.topLeft, r.size, CornerRadius(8.dp.toPx()),
-    )
-    drawCircle(Color.White.copy(alpha = 0.5f), radius = r.width * 0.28f, center = r.center, style = Stroke(2.dp.toPx()))
+/** Голограмма: светлое серебро — фольга шейдера на нём особенно видна. */
+private fun DrawScope.drawHologram(r: Rect, shape: HoloShape) {
+    val silver = Brush.linearGradient(listOf(Color(0xFFDADDE3), Color(0xFF9DA3AD), Color(0xFFE9EBEF)), r.topLeft, r.bottomRight)
+    when (shape) {
+        HoloShape.Square -> {
+            drawRoundRect(silver, r.topLeft, r.size, CornerRadius(8.dp.toPx()))
+            drawCircle(Color.White.copy(alpha = 0.5f), radius = r.width * 0.28f, center = r.center, style = Stroke(2.dp.toPx()))
+        }
+        HoloShape.Circle -> {
+            drawCircle(silver, radius = r.width / 2, center = r.center)
+            drawCircle(Color.White.copy(alpha = 0.55f), radius = r.width * 0.3f, center = r.center, style = Stroke(1.5.dp.toPx()))
+            drawCircle(Color.White.copy(alpha = 0.35f), radius = r.width * 0.15f, center = r.center, style = Stroke(1.5.dp.toPx()))
+        }
+        HoloShape.Stripe -> drawRect(silver, r.topLeft, r.size)
+    }
 }

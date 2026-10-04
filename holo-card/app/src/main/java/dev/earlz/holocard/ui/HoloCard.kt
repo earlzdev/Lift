@@ -47,7 +47,7 @@ import kotlin.math.roundToInt
 class FoilSpec(val rect: Rect, val inside: Float, val outside: Float, val metal: Float)
 
 /** Максимальный поворот карты, градусов. */
-private const val MAX_ROTATION = 26f
+private const val MAX_ROTATION = 18f
 
 /** Свайп быстрее этого, px/с, переворачивает карту, даже если она не дошла до 90°. */
 private const val FLIP_VELOCITY = 800f
@@ -55,14 +55,12 @@ private const val FLIP_VELOCITY = 800f
 private val SHADOW_BLUR = 28.dp
 
 /**
- * Металлическая банковская карта: поворачивается в 3D за наклоном телефона, переливается
- * голограммой, может покрыться инеем.
+ * Металлическая банковская карта: поворачивается в 3D за наклоном телефона и переливается голограммой.
  *
  * @param tilt наклон телефона, -1..1
  * @param interactive true — палец наклоняет карту, горизонтальный свайп её переворачивает;
  *   false — карта только следит за наклоном (например, в стопке кошелька)
  * @param tiltScale насколько сильно карта реагирует на наклон телефона (1 — полностью)
- * @param frost 0..1 — насколько карта покрыта инеем (заморожена)
  */
 @Composable
 fun HoloCard(
@@ -71,12 +69,10 @@ fun HoloCard(
     modifier: Modifier = Modifier,
     interactive: Boolean = true,
     tiltScale: Float = 1f,
-    frost: () -> Float = { 0f },
 ) {
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     val holo = remember { HoloShader() }
-    val ice = remember { FrostShader() }
     // Палец «перехватывает» наклон: тянешь — карта поворачивается, отпустил — пружинит обратно.
     // Пока палец на карте — простое состояние, без корутин на каждое касание;
     // анимация запускается один раз, когда палец отпустили
@@ -190,14 +186,12 @@ fun HoloCard(
                 },
             ) { BankBack(card) }
 
-            // Свет фольги поверх обеих сторон: прибавляется к пикселям карты (BlendMode.Plus),
-            // а иней — обычным наложением сверху. Читают состояние только при отрисовке —
-            // каждый кадр перезаписывается лишь этот холст
+            // Свет фольги поверх обеих сторон: прибавляется к пикселям карты (BlendMode.Plus).
+            // Читает наклон только при отрисовке — каждый кадр перезаписывается лишь этот холст
             Canvas(Modifier.fillMaxSize()) {
                 val t = totalTilt()
                 val back = backVisible()
-                val spec = bankFoil(density.density, back)
-                val f = frost()
+                val spec = bankFoil(card, density.density, back)
                 val corner = CornerRadius(BANK_CORNER.toPx())
                 drawRoundRect(
                     brush = holo.brush(
@@ -212,14 +206,10 @@ fun HoloCard(
                     ),
                     size = cardPx.size,
                     cornerRadius = corner,
-                    // Подо льдом металл не блестит; светлый металл и так светлый — блик на нём слабее,
-                    // иначе он выгорает в белое пятно
-                    alpha = (1f - 0.7f * f) * if (card.ink == Color.White) 1f else 0.4f,
+                    // Светлый металл и так светлый — блик на нём слабее, иначе он выгорает в белое пятно
+                    alpha = if (card.ink == Color.White) 1f else 0.4f,
                     blendMode = BlendMode.Plus,
                 )
-                if (f > 0f) {
-                    drawRoundRect(brush = ice.brush(cardPx, f), size = cardPx.size, cornerRadius = corner)
-                }
             }
         }
     }

@@ -13,8 +13,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalContext
 
-/** Наклон телефона дальше этого угла (в радианах, ~13°) считаем максимальным. */
-private const val MAX_TILT = 0.22f
+/** Наклон телефона дальше этого угла (в радианах, ~18°) считаем максимальным. */
+private const val MAX_TILT = 0.32f
 
 /** Как быстро «нейтраль» догоняет телефон: доля за одно показание (~50 в секунду) — около 10 с. */
 private const val RECENTER = 0.002f

@@ -18,19 +18,24 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.text.TextStyle
-import dev.earlz.holocard.model.formatRub
 
 /**
  * Сумма, у которой каждая цифра — отдельный «барабан»: при изменении цифры прокручиваются вверх.
  * С [countUp] сумма при показе насчитывается с нуля — барабаны крутятся, как в слот-машине.
  */
 @Composable
-fun RollingNumber(value: Long, style: TextStyle, modifier: Modifier = Modifier, countUp: Boolean = true) {
+fun RollingNumber(
+    value: Long,
+    format: (Long) -> String,
+    style: TextStyle,
+    modifier: Modifier = Modifier,
+    countUp: Boolean = true,
+) {
     val shown = remember { Animatable(if (countUp) 0f else value.toFloat()) }
     LaunchedEffect(value) {
         shown.animateTo(value.toFloat(), tween(durationMillis = 1400, easing = FastOutSlowInEasing))
     }
-    val text = formatRub(shown.value.toLong())
+    val text = format(shown.value.toLong())
     Row(modifier.clipToBounds()) {
         // Ключ — позиция справа: так единицы всегда остаются единицами, даже когда число растёт
         text.forEachIndexed { i, ch ->

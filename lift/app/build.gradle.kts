@@ -47,6 +47,8 @@ dependencies {
     implementation(libs.mlkit.subject.segmentation)
     // ModuleInstallClient: докачать модель ML Kit, если её ещё нет на устройстве
     implementation(libs.play.services.base)
+    // Миниатюры в галерее: кэш и загрузка картинок по content:// Uri
+    implementation(libs.coil.compose)
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     androidTestImplementation(libs.androidx.test.runner)

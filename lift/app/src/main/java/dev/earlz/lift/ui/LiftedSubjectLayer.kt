@@ -1,5 +1,6 @@
 package dev.earlz.lift.ui
 
+import android.graphics.Bitmap
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,14 +17,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -41,10 +43,12 @@ import kotlin.math.roundToInt
  * @param lift 0 — лежит на фото, 1 — поднят (пружина может ненадолго выходить за 1)
  * @param wave 0..1 — прогресс волны света по контуру
  * @param shrink 0..1 — объект сжимается в точку касания (улетает в карман)
+ * @param field размытая маска объекта для свечения и тени, см. [computeGlowField]
  */
 @Composable
 fun LiftedSubjectLayer(
     cutout: ImageBitmap,
+    field: GlowField,
     rect: Rect,
     touch: Offset,
     drag: () -> Offset,
@@ -53,12 +57,11 @@ fun LiftedSubjectLayer(
     shrink: () -> Float = { 0f },
 ) {
     val density = LocalDensity.current
-    // Запас вокруг объекта: свечение и тень рисуются за его границами
-    val pad = with(density) { 48.dp.toPx() }
-    val glowRadius = with(density) { 14.dp.toPx() }
+    val pad = with(density) { LIFT_PAD.toPx() }
+    val glowRadius = with(density) { GLOW_RADIUS.toPx() }
     val shadowDrop = with(density) { 18.dp.toPx() }
-    val shadowBlur = with(density) { 14.dp.toPx() }
     val glow = remember { GlowShader() }
+    val fieldImage = remember(field) { field.bitmap.asImageBitmap() }
     // Бесконечные «часы» для перелива ободка; читаются только при отрисовке
     val clock = rememberInfiniteTransition(label = "glowClock")
     val time by clock.animateFloat(
@@ -73,11 +76,10 @@ fun LiftedSubjectLayer(
     val origin = TransformOrigin(local.x / layer.width, local.y / layer.height)
     val layerSize = with(density) { androidx.compose.ui.unit.DpSize(layer.width.toDp(), layer.height.toDp()) }
 
-    fun DrawScope.drawCutout(colorFilter: ColorFilter? = null) = drawImage(
+    fun DrawScope.drawCutout() = drawImage(
         image = cutout,
         dstOffset = IntOffset(pad.roundToInt(), pad.roundToInt()),
         dstSize = IntSize(rect.width.roundToInt(), rect.height.roundToInt()),
-        colorFilter = colorFilter,
     )
 
     Box(
@@ -88,7 +90,7 @@ fun LiftedSubjectLayer(
             }
             .requiredSize(layerSize),
     ) {
-        // Тень: силуэт объекта, залитый чёрным и размытый; при подъёме уходит вниз
+        // Тень: размытый силуэт из поля свечения, залитый чёрным; при подъёме уходит вниз
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
@@ -100,10 +102,13 @@ fun LiftedSubjectLayer(
                     scaleX = (1f + 0.03f * l) * k
                     scaleY = (1f + 0.03f * l) * k
                     alpha = (0.55f * l * (1f - shrink())).coerceIn(0f, 1f)
-                    renderEffect = BlurEffect(shadowBlur, shadowBlur)
                 },
         ) {
-            drawCutout(ColorFilter.tint(Color.Black))
+            drawImage(
+                image = fieldImage,
+                dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()),
+                colorFilter = ColorFilter.tint(Color.Black),
+            )
         }
 
         // Сам объект: приподнимается (масштаб) и светится по контуру
@@ -118,6 +123,7 @@ fun LiftedSubjectLayer(
                     scaleY = (1f + 0.06f * l) * k
                     // В самом конце полёта в карман объект растворяется
                     alpha = ((1f - shrink()) / 0.3f).coerceIn(0f, 1f)
+                    glow.setField(field)
                     renderEffect = glow.renderEffect(
                         width = size.width,
                         height = size.height,
@@ -133,3 +139,18 @@ fun LiftedSubjectLayer(
         }
     }
 }
+
+/** Запас вокруг объекта: свечение и тень рисуются за его границами. */
+val LIFT_PAD = 48.dp
+
+/** Насколько далеко от края расходится свечение. */
+val GLOW_RADIUS = 14.dp
+
+/** Поле свечения для объекта размером [rect] на экране — считать заранее, в фоне. */
+fun Density.computeGlowField(cutout: Bitmap, rect: Rect): GlowField = GlowField.compute(
+    cutout = cutout,
+    width = rect.width,
+    height = rect.height,
+    pad = LIFT_PAD.toPx(),
+    blurRadius = GLOW_RADIUS.toPx(),
+)

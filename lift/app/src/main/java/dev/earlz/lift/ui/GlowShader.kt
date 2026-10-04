@@ -1,7 +1,10 @@
 package dev.earlz.lift.ui
 
+import android.graphics.BitmapShader
+import android.graphics.Matrix
 import android.graphics.RenderEffect
 import android.graphics.RuntimeShader
+import android.graphics.Shader
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asComposeRenderEffect
 
@@ -9,12 +12,12 @@ import androidx.compose.ui.graphics.asComposeRenderEffect
  * AGSL-шейдер: переливающийся ободок вокруг вырезанного объекта и волна света,
  * которая расходится от пальца по контуру.
  *
- * Шейдер применяется к слою, где уже нарисован объект с прозрачным фоном, и
- * для каждого пикселя смотрит на прозрачность соседей: если рядом есть объект,
- * а сам пиксель прозрачный — значит, мы у края снаружи, и тут светится.
+ * Где край объекта, шейдер узнаёт из [GlowField] — заранее размытой маски: около 0.5
+ * на краю, к 1 внутри, к 0 снаружи. Одно чтение на пиксель вместо десятков.
  */
 private const val GLOW_AGSL = """
 uniform shader content;
+uniform shader field;      // размытая маска объекта (GlowField), в координатах слоя
 uniform float2 size;
 uniform float2 origin;     // точка касания в координатах слоя
 uniform float progress;    // 0..1 — насколько далеко ушла волна
@@ -22,7 +25,6 @@ uniform float rim;         // 0..1 — яркость постоянного о�
 uniform float radius;      // ширина свечения в пикселях
 uniform float time;        // секунды — цвета ободка медленно бегут по кругу
 
-const int DIRS = 12;
 const float TAU = 6.2831853;
 
 // Перелив розовый → оранжевый → голубой → фиолетовый, по кругу
@@ -43,21 +45,11 @@ half4 main(float2 p) {
     half4 c = content.eval(p);
     float a = c.a;
 
-    // near — сколько объекта поблизости (мягко затухает с расстоянием),
-    // far  — есть ли фон совсем рядом (для блика у края изнутри)
-    float near = 0.0;
-    float far = 0.0;
-    for (int i = 0; i < DIRS; i++) {
-        float ang = float(i) * TAU / float(DIRS);
-        float2 d = float2(cos(ang), sin(ang));
-        float a1 = content.eval(p + d * radius * 0.3).a;
-        float a2 = content.eval(p + d * radius * 0.65).a;
-        float a3 = content.eval(p + d * radius).a;
-        near = max(near, max(a1, max(a2 * 0.6, a3 * 0.3)));
-        far = max(far, 1.0 - a1);
-    }
-    float outer = near * (1.0 - a);
-    float inner = far * a;
+    // Снаружи у края поле ещё не погасло — там светится; внутри у края поле
+    // уже меньше единицы — там блик
+    float b = field.eval(p).a;
+    float outer = clamp(b * 2.0, 0.0, 1.0) * (1.0 - a);
+    float inner = clamp((1.0 - b) * 2.5, 0.0, 1.0) * a;
 
     // Цвет зависит от угла вокруг центра объекта и медленно вращается со временем
     float2 v = p - size * 0.5;
@@ -91,6 +83,20 @@ half4 main(float2 p) {
 
 class GlowShader {
     private val shader = RuntimeShader(GLOW_AGSL)
+    private var boundField: GlowField? = null
+
+    /** Подключает поле свечения; поле в [GlowField.DOWNSCALE] раз меньше слоя — растягиваем матрицей. */
+    fun setField(field: GlowField) {
+        if (boundField === field) return
+        boundField = field
+        val bitmapShader = BitmapShader(field.bitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP).apply {
+            filterMode = BitmapShader.FILTER_MODE_LINEAR
+            setLocalMatrix(Matrix().apply {
+                setScale(GlowField.DOWNSCALE.toFloat(), GlowField.DOWNSCALE.toFloat())
+            })
+        }
+        shader.setInputShader("field", bitmapShader)
+    }
 
     /** Новый RenderEffect на каждый кадр: эффект запоминает значения uniform-ов при создании. */
     fun renderEffect(
